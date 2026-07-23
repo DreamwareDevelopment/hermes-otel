@@ -1297,7 +1297,7 @@ def on_pre_api_request(
 
     attributes.update(_session_sender_attributes(tracer, session_id))
 
-    if tracer.config.capture_full_prompts:
+    if tracer.config.capture_previews and tracer.config.capture_full_prompts:
         messages = kwargs.get("messages")
         system_prompt = kwargs.get("system_prompt")
         serialized = _serialize_full(messages)
@@ -1423,7 +1423,7 @@ def on_post_api_request(
     if assistant_tool_call_count:
         attributes["llm.response.tool_calls"] = assistant_tool_call_count
 
-    if tracer.config.capture_full_responses:
+    if tracer.config.capture_previews and tracer.config.capture_full_responses:
         response_content = kwargs.get("response_content")
         response_tool_calls = kwargs.get("response_tool_calls")
         if response_content:

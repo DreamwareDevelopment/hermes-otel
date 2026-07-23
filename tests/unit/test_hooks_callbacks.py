@@ -936,6 +936,24 @@ class TestFullCaptureFlags:
         assert _json.loads(attrs["gen_ai.input.messages"]) == messages
         assert len(attrs["input.value"]) > 5000
 
+    def test_pre_suppresses_full_prompt_when_previews_off(self, mock_tracer):
+        """SEC-187: capture_previews is the global privacy kill switch — it must
+        gate capture_full_prompts too, the same way it already gates the MCP
+        full-argument capture path (see
+        TestOnPreToolCall.test_full_mcp_args_follow_preview_privacy_gate).
+        """
+        from hermes_otel.plugin_config import HermesOtelConfig
+
+        mock_tracer.config = HermesOtelConfig(capture_previews=False, capture_full_prompts=True)
+        messages = [{"role": "user", "content": "hello"}]
+        on_pre_api_request(**self._pre_kwargs(messages=messages, system_prompt="the-system-prompt"))
+        attrs = mock_tracer.start_span.call_args[1]["attributes"]
+        assert "llm.input_messages" not in attrs
+        assert "gen_ai.input.messages" not in attrs
+        assert "input.value" not in attrs
+        assert "llm.system_prompt" not in attrs
+        assert "gen_ai.system_instructions" not in attrs
+
     def test_pre_handles_empty_messages(self, mock_tracer):
         from hermes_otel.plugin_config import HermesOtelConfig
 
@@ -969,6 +987,19 @@ class TestFullCaptureFlags:
         assert "gen_ai.output.messages" in attrs
         assert attrs["output.value"] == big_response
         assert attrs["output.mime_type"] == "text/plain"
+
+    def test_post_suppresses_full_response_when_previews_off(self, mock_tracer):
+        """SEC-187: same privacy-kill-switch gate on the response side."""
+        from hermes_otel.plugin_config import HermesOtelConfig
+
+        mock_tracer.config = HermesOtelConfig(capture_previews=False, capture_full_responses=True)
+        on_post_api_request(
+            **self._post_kwargs(response_content="the full response", response_tool_calls=[])
+        )
+        attrs = mock_tracer.end_span.call_args[1]["attributes"]
+        assert "llm.output.content" not in attrs
+        assert "gen_ai.output.messages" not in attrs
+        assert "output.value" not in attrs
 
     def test_post_serializes_simplenamespace_tool_calls(self, mock_tracer):
         from types import SimpleNamespace
