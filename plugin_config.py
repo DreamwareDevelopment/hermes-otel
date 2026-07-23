@@ -15,6 +15,7 @@ Two ways to pick backends:
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -227,6 +228,34 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
 _ALLOWED_KEYS = {f.name for f in fields(HermesOtelConfig)}
 _BACKEND_ALLOWED_KEYS = {f.name for f in fields(BackendConfig)}
 
+# Matches ``${NAME}`` placeholders in backend header values (see
+# _interpolate_env_vars). Env var names follow the shell convention:
+# letters, digits, underscore, not starting with a digit.
+_ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _interpolate_env_vars(value: str) -> str:
+    """Interpolate ``${NAME}`` placeholders in a backend header value.
+
+    Every ``${NAME}`` occurrence is replaced with ``os.environ["NAME"]``.
+    A referenced-but-unset variable is a config error: raise ``ValueError``
+    naming it, rather than silently dropping it or shipping the literal
+    ``${...}`` text as an auth header (either of which just produces a
+    mysterious 401 downstream). Values with no placeholder pass through
+    unchanged.
+    """
+
+    def _replace(match: "re.Match[str]") -> str:
+        name = match.group(1)
+        if name not in os.environ:
+            raise ValueError(
+                f"[hermes-otel] config.yaml backend header references undefined "
+                f"environment variable: '{name}'"
+            )
+        return os.environ[name]
+
+    return _ENV_VAR_PATTERN.sub(_replace, value)
+
 
 def _coerce_backends(value: Any) -> Optional[Tuple[BackendConfig, ...]]:
     """Coerce a yaml ``backends:`` list into a tuple of BackendConfig."""
@@ -258,7 +287,7 @@ def _coerce_backends(value: Any) -> Optional[Tuple[BackendConfig, ...]]:
                 continue
             if k == "headers":
                 if isinstance(v, dict):
-                    kwargs[k] = {str(kk): str(vv) for kk, vv in v.items()}
+                    kwargs[k] = {str(kk): _interpolate_env_vars(str(vv)) for kk, vv in v.items()}
                 continue
             if k in ("traces", "metrics", "logs"):
                 if isinstance(v, bool):

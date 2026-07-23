@@ -491,6 +491,57 @@ class TestBackendsYaml:
         assert cfg.backends is None
 
 
+class TestBackendHeaderEnvInterpolation:
+    """SEC-187: ``${NAME}`` env interpolation in backend ``headers:`` values.
+
+    The docs promise this; until now the loader never implemented it, so an
+    API key had to sit literally in config.yaml. Scope is intentionally
+    narrow — only backend ``headers:`` map values, not other config fields.
+    """
+
+    def _write(self, tmp_path, headers_yaml: str):
+        path = tmp_path / "config.yaml"
+        path.write_text(
+            "backends:\n"
+            "  - type: phoenix\n"
+            "    endpoint: http://localhost:6006/v1/traces\n"
+            "    headers:\n" + headers_yaml
+        )
+        return path
+
+    def test_interpolates_single_var(self, tmp_path, monkeypatch):
+        if not _has_yaml():
+            pytest.skip("pyyaml not installed")
+        monkeypatch.setenv("TEST_KEY", "abc")
+        path = self._write(tmp_path, "      Authorization: 'Bearer ${TEST_KEY}'\n")
+        cfg = load_config(path=path)
+        assert cfg.backends[0].headers == {"Authorization": "Bearer abc"}
+
+    def test_interpolates_multiple_vars_in_one_value(self, tmp_path, monkeypatch):
+        if not _has_yaml():
+            pytest.skip("pyyaml not installed")
+        monkeypatch.setenv("TEST_KEY", "abc")
+        monkeypatch.setenv("TEST_KEY2", "def")
+        path = self._write(tmp_path, "      X-Combo: '${TEST_KEY}-${TEST_KEY2}'\n")
+        cfg = load_config(path=path)
+        assert cfg.backends[0].headers == {"X-Combo": "abc-def"}
+
+    def test_unset_var_raises_value_error_naming_variable(self, tmp_path, monkeypatch):
+        if not _has_yaml():
+            pytest.skip("pyyaml not installed")
+        monkeypatch.delenv("TEST_MISSING", raising=False)
+        path = self._write(tmp_path, "      Authorization: 'Bearer ${TEST_MISSING}'\n")
+        with pytest.raises(ValueError, match="TEST_MISSING"):
+            load_config(path=path)
+
+    def test_value_without_placeholder_passes_through_unchanged(self, tmp_path):
+        if not _has_yaml():
+            pytest.skip("pyyaml not installed")
+        path = self._write(tmp_path, "      X-Plain: plain-value\n")
+        cfg = load_config(path=path)
+        assert cfg.backends[0].headers == {"X-Plain": "plain-value"}
+
+
 class TestMissingPyYaml:
     def test_missing_pyyaml_silent_fallback(self, tmp_path, monkeypatch, caplog):
         """When pyyaml isn't importable, loading a real yaml file is skipped silently."""
