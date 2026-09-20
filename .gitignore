@@ -244,3 +244,6 @@ config.yaml.local
 # Un-ignore it despite the generic `dist/` rule in the Python block above.
 !dashboard/dist/
 !dashboard/dist/**
+# Test selection data (pytest-testmon); also its -shm / -wal sidecars
+.testmondata
+.testmondata-*

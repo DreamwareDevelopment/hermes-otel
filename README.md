@@ -59,8 +59,11 @@ The test suite uses its own isolated environment via `uv` and does **not** requi
 ```bash
 cd ~/.hermes/plugins/hermes_otel
 
-# Unit + integration tests (no Docker needed, <1s)
+# Unit + integration tests (no Docker needed)
 uv run --extra dev pytest
+
+# Full suite spread over every core: ~3.6x faster here
+uv run --extra dev pytest -n auto
 
 # All E2E tests (requires Docker)
 uv run --extra dev --extra e2e pytest -m e2e
@@ -75,7 +78,23 @@ uv run --extra dev --extra e2e pytest -m langfuse
 uv run --extra dev --extra e2e pytest -m smoke
 ```
 
-The default `pytest` run excludes E2E and smoke tests and completes in under a second.
+The default `pytest` run excludes E2E and smoke tests. Pytest's own reported
+time for it is about 2 seconds, but wall time is around 50 seconds, because the
+OTLP metrics exporter retries against `localhost:6006` while the interpreter
+shuts down. `-n auto` brings that to about 14 seconds (the workers pay the
+retry concurrently instead of one after another), which is why CI runs the
+suite with `-n auto`. The coverage gate is unaffected: 91.81% either way.
+
+`pytest-testmon` is installed for consistency with the other repos, but it does
+**not** select usefully here, and that is not a misconfiguration to fix.
+`--testmon` is incompatible with a `-m` marker filter: with `-m` in play,
+whether from `addopts` or from the command line, testmon records its data but
+never matches it, so every run is a full run (isolated by holding the test file
+fixed and varying only `addopts`: with `-v` the second run deselects all 40
+tests, with `-m 'not e2e and not smoke'` it re-runs all 40). Dropping `-m` makes
+testmon settle correctly, but it also pulls in the smoke and e2e tiers, which
+need Docker and a live hermes API and do not complete locally. So this repo's
+speed-up is `-n auto`, not testmon. See SEC-954.
 
 #### Test tiers
 

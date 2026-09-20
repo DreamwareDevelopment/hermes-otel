@@ -38,6 +38,7 @@ jobs:
         run: >
           uv run --extra dev pytest
           --tb=short -q
+          -n auto
           --cov=hermes_otel
           --cov-report=term
           --cov-report=xml
